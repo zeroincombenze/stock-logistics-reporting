@@ -1,97 +1,94 @@
 # Copyright 2014-2018 Tecnativa - Pedro M. Baeza
-# Copyright 2015 Tecnativa - Antonio Espinosa
-# Copyright 2018 Tecnativa - Luis M. Ontalba
-# Copyright 2016-2022 Tecnativa - Carlos Dauden
+# Copyright 2015 Antonio Espinosa - Tecnativa <antonio.espinosa@tecnativa.com>
+# Copyright 2018 Luis M. Ontalba - Tecnativa <luis.martinez@tecnativa.com>
+# Copyright 2016-2021 Carlos Dauden - Tecnativa <carlos.dauden@tecnativa.com>
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
-from odoo import fields, models
-from odoo.tools import float_compare
+from odoo import api, fields, models
+from odoo.tools.float_utils import float_round
 
 
 class StockMoveLine(models.Model):
-    _inherit = "stock.move.line"
+    _inherit = 'stock.move.line'
 
     sale_line = fields.Many2one(
-        related="move_id.sale_line_id", readonly=True, string="Related order line"
+        related='move_id.sale_line_id', readonly=True,
+        string='Related order line',
     )
     currency_id = fields.Many2one(
-        related="sale_line.currency_id", readonly=True, string="Sale Currency"
+        related='sale_line.currency_id', readonly=True,
+        string='Sale Currency',
     )
     sale_tax_id = fields.Many2many(
-        related="sale_line.tax_id", readonly=True, string="Sale Tax"
+        related='sale_line.tax_id', readonly=True,
+        string='Sale Tax',
     )
     sale_price_unit = fields.Float(
-        compute="_compute_sale_order_line_fields",
-        compute_sudo=True,
+        related='sale_line.price_unit', readonly=True,
+        string='Sale price unit',
     )
     sale_discount = fields.Float(
-        related="sale_line.discount", readonly=True, string="Sale discount (%)"
+        related='sale_line.discount', readonly=True,
+        string='Sale discount (%)',
     )
     sale_tax_description = fields.Char(
-        compute="_compute_sale_order_line_fields",
-        string="Tax Description",
+        compute='_compute_sale_order_line_fields',
+        string='Tax Description',
         compute_sudo=True,  # See explanation for sudo in compute method
     )
     sale_price_subtotal = fields.Monetary(
-        compute="_compute_sale_order_line_fields",
-        string="Price subtotal",
+        compute='_compute_sale_order_line_fields',
+        string='Price subtotal',
         compute_sudo=True,
     )
     sale_price_tax = fields.Float(
-        compute="_compute_sale_order_line_fields", string="Taxes", compute_sudo=True
+        compute='_compute_sale_order_line_fields',
+        string='Taxes',
+        compute_sudo=True,
     )
     sale_price_total = fields.Monetary(
-        compute="_compute_sale_order_line_fields", string="Total", compute_sudo=True
+        compute='_compute_sale_order_line_fields',
+        string='Total',
+        compute_sudo=True,
     )
 
-    def _get_report_valued_quantity(self):
-        return self.qty_done or self.reserved_qty
-
+    @api.multi
     def _compute_sale_order_line_fields(self):
         """This is computed with sudo for avoiding problems if you don't have
         access to sales orders (stricter warehouse users, inter-company
         records...).
         """
-        self.sale_tax_description = False
-        self.sale_price_subtotal = False
-        self.sale_price_tax = False
-        self.sale_price_total = False
-        self.sale_price_unit = False
+        prec = self.env['decimal.precision'].precision_get('Product Price')
         for line in self:
-            valued_line = line.sale_line
-            if not valued_line:
-                continue
-            quantity = line._get_report_valued_quantity()
-            sale_line_uom = valued_line.product_uom
-            different_uom = valued_line.product_uom != line.product_uom_id
-            # If order line quantity don't match with move line quantity compute values
-            different_qty = float_compare(
-                quantity,
-                line.sale_line.product_uom_qty,
-                precision_rounding=line.product_uom_id.rounding,
-            )
-            if different_uom or different_qty:
-                # Force read to cache M2M field for get values with _convert_to_write
-                line.sale_line.mapped("tax_id")
-                # Create virtual sale line with stock move line quantity
-                sol_vals = line.sale_line._convert_to_write(line.sale_line._cache)
-                valued_line = line.sale_line.new(sol_vals)
-                valued_line.product_uom_qty = quantity
-            if different_qty:
-                # Force original price unit to avoid pricelist recomputed (not needed)
-                valued_line.price_unit = line.sale_line.price_unit
-            if different_uom:
-                valued_line.price_unit = sale_line_uom._compute_price(
-                    valued_line.price_unit, line.product_uom_id
+            # In v12 the support for compute_sudo on non stored fields is
+            # limited (officially unsupported) so we have to mainaint some
+            # some sudo() calls. This is not necessary from v13
+            # https://github.com/odoo/odoo/blob/12.0/odoo/fields.py#L179
+            sale_line = line.sale_line.sudo()
+            price_unit = (
+                float_round(
+                    sale_line.price_subtotal / sale_line.product_uom_qty,
+                    precision_digits=prec,
                 )
-            line.update(
-                {
-                    "sale_tax_description": ", ".join(
-                        t.name or t.description for t in line.sale_tax_id
-                    ),
-                    "sale_price_subtotal": valued_line.price_subtotal,
-                    "sale_price_tax": valued_line.price_tax,
-                    "sale_price_total": valued_line.price_total,
-                    "sale_price_unit": valued_line.price_unit,
-                }
+                if sale_line.product_uom_qty
+                else sale_line.price_reduce
             )
+            taxes = line.sale_tax_id.compute_all(
+                price_unit=price_unit,
+                currency=line.currency_id,
+                quantity=line.qty_done or line.product_qty,
+                product=line.product_id,
+                partner=sale_line.order_id.partner_shipping_id)
+            if sale_line.company_id.tax_calculation_rounding_method == (
+                    'round_globally'):
+                price_tax = sum(
+                    t.get('amount', 0.0) for t in taxes.get('taxes', []))
+            else:
+                price_tax = taxes['total_included'] - taxes['total_excluded']
+            line.update({
+                'sale_tax_description': ', '.join(
+                    t.name or t.description for t in line.sale_tax_id),
+                'sale_price_subtotal': taxes['total_excluded'],
+                'sale_price_tax': price_tax,
+                'sale_price_total': taxes['total_included'],
+            })

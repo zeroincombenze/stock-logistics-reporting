@@ -10,16 +10,3 @@
   * David Vidal
   * Luis M. Ontalba
   * Ernesto Tejeda
-  * Sergio Teruel
-
-* `GreenIce <https://www.greenice.com>`_:
-
-  * Fernando La Chica <fernandolachica@gmail.com>
-
-* `Landoo <https://www.landoo.es>`_:
-
-  * Aritz Olea <ao@landoo.es>
-
-* `Studio73 <https://www.studio73.es>`_:
-
-  * Miguel Gandia <miguel@studio73.es>

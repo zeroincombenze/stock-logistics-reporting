@@ -8,12 +8,19 @@
 {
     "name": "Valued Picking Report",
     "summary": "Adding Valued Picking on Delivery Slip report",
-    "version": "16.0.1.0.0",
-    "author": "Tecnativa, Odoo Community Association (OCA)",
+    "version": "12.0.1.0.2",
+    "author": "Tecnativa, "
+              "Odoo Community Association (OCA)",
     "website": "https://github.com/OCA/stock-logistics-reporting",
     "category": "Warehouse Management",
     "license": "AGPL-3",
-    "depends": ["sale_stock"],
-    "data": ["views/res_partner_view.xml", "report/stock_picking_report_valued.xml"],
+    "depends": [
+        "sale_management",
+        "stock",
+    ],
+    "data": [
+        'views/res_partner_view.xml',
+        'report/stock_picking_report_valued.xml',
+    ],
     "installable": True,
 }

@@ -7,8 +7,9 @@ from odoo import fields, models
 
 
 class ResPartner(models.Model):
-    _inherit = "res.partner"
+    _inherit = 'res.partner'
 
     valued_picking = fields.Boolean(
-        default=True, help="You can select which partners have valued pickings"
+        default=True,
+        help='You can select which partners have valued pickings',
     )
